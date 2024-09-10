@@ -1,0 +1,329 @@
+---
+title: "Boston crimes 2022"
+author: "Wiktoria Konop"
+date: ""
+output:
+  word_document: default
+  html_document: default
+mainfont: Artifakt Element Book
+---
+
+# Data cleaning
+```{r include=FALSE}
+library(dplyr) 
+library(stringr) 
+library(tidyverse) 
+```
+
+### Initial interaction with data
+
+At the beginning I loaded the dataset taken from [here](https://data.boston.gov/dataset/crime-incident-reports-august-2015-to-date-source-new-system) and I checked its content. 
+
+Dimensions: 73852 rows and 17 cols
+```{r, echo=FALSE}
+dataset_boston<-read.csv("boston-crimes-2022.csv")
+boston_crimes <- dataset_boston
+dim(boston_crimes)
+```
+The data set contains information about types of offenses (with unique incident number and offense codes) committed in 2022 on the premises of Boston (the capital and largest city of the state of Massachusetts in the USA). There are also certain columns which help us to uncover more insights about place: district, reporting area, street and three columns with geographical coordinates.
+
+Apart from that, there are some columns that provide details about the date of violation, more specifically we have information about minute, hour, day, day of the week and month.
+
+What is more, we know about gunfight. 0 in a row means there was not shooting, 1 contrary.
+
+
+Initial data looks as follows:
+```{r, echo=FALSE}
+head(boston_crimes)
+```
+Immediately I can tell that there are some unnecessary columns which will have no merit to this analysis, so I removed them. The mentioned columns are: 
+
+*	INCIDENT_NUMBER - for each row it is different, so it gives us zero meaningful information
+*	OFFENSE_CODE_GROUP- empty column
+*	YEAR - each data refers to 2022
+*	UCR_PART - empty column
+
+```{r, echo=FALSE}
+boston_crimes<-boston_crimes %>% 
+  select(!c(INCIDENT_NUMBER,OFFENSE_CODE_GROUP,YEAR,UCR_PART))
+```
+
+### Missing values
+In the next step I will examine data completeness, hence I'm checking if there is any NA or empty string. 
+I discovered that there are some empty strings which i converted into NA and I summed up NA in each column: 
+
+```{r, echo=FALSE}
+boston_crimes <- replace(boston_crimes,boston_crimes == '', NA)
+nNA<-colSums(is.na(boston_crimes))
+nNA
+NA_percentage<- nNA / nrow(boston_crimes) * 100
+cat("Percent of NA values in each column [%]: ", NA_percentage)
+#removing missing values -> I'm deleting one column, because it has huge impact on my date, rest i leave
+#only for analysis of single column i will remove missing records
+#to leave or not to leave? -> if i leave it, the next function will make that the total number of records will be 26820 and without removing anything 73852 -> a huge difference !!!! 
+#boston_crimes <- boston_crimes[complete.cases(boston_crimes), ]
+#the 2nd way
+#cleaned <- boston_crimes[rowSums(is.na(boston_crimes)) == 0,]
+#colSums(is.na(boston_crimes))  #rechecking
+#dim(boston_crimes) #rechecking the dimensions
+```
+For now, I'm leaving all rows (with and without missing values). I will remove them only when I will be analyzing single variables.
+
+However,I decided to delete thoroughly "reporting_area" because in this column there is more missing values (more than 60% !) then actual values.
+```{r, echo=FALSE}
+boston_crimes <- boston_crimes[,-4] 
+```
+
+### The correctness of data
+
+I detected one typo in data, namely instead of "MURDER, NON-NEGLIGENT MANSLAUGHTER" in the system was written "MURDER, NON-NEGLIGIENT MANSLAUGHTER", so I corrected it. 
+
+```{r include=FALSE}
+corr_description <- as.data.frame(unique(boston_crimes$OFFENSE_DESCRIPTION))
+sum(boston_crimes$OFFENSE_DESCRIPTION == "MURDER, NON-NEGLIGIENT MANSLAUGHTER")
+#replacement
+boston_crimes$OFFENSE_DESCRIPTION[boston_crimes$OFFENSE_DESCRIPTION == "MURDER, NON-NEGLIGIENT MANSLAUGHTER"] <- "MURDER, NON-NEGLIGENT MANSLAUGHTER"
+sum(boston_crimes$OFFENSE_DESCRIPTION == "MURDER, NON-NEGLIGIENT MANSLAUGHTER")
+```
+
+### Data decluttering
+In the next step, I changed headlines of columns to lowercase and split the variable "occurred_on_date". Some of the information from this column I had already had, so I placed separately only day and minutes. Then I removed "occurred_on_date" and I ordered the data set. 
+
+```{r, echo=FALSE}
+boston_crimes <- rename_with(boston_crimes, tolower)
+```
+
+```{r include=FALSE}
+day<-c()
+for(element in boston_crimes$occurred_on_date){
+   day <- append(day,unlist(strsplit(element, split="/"))[2])
+}
+minutes<-c()
+for ( item in boston_crimes$occurred_on_date ){
+  if(str_sub(item,-2,-2) == "0"){
+    minutes <- append(minutes, str_sub(item,-1,-1))
+  }else minutes<- append(minutes,str_sub(item,-2,-1))
+}
+```
+
+```{r, echo=FALSE}
+boston_crimes <- boston_crimes[,-5]
+boston_crimes <- add_column(boston_crimes,day,.after=5)
+boston_crimes <- add_column(boston_crimes,minutes,.after=8)
+boston_crimes <- boston_crimes %>% relocate(district,.after=9)
+```
+
+```{r, echo=FALSE}
+colnames(boston_crimes)
+```
+### Types of variables and level of measurement 
+
+Afterwards, I checked the types of variables. They are presented in the table below:
+
+```{r, echo=FALSE}
+str(boston_crimes)
+```
+Let me explain in more detail the division of types. We may have categorical and numerical data. The first one represents groups or categories, the second one represents numbers. Moreover, numerical data is divided into two groups: discrete (counted in a finite matter) and continuous (infinite and impossible to count). 
+
+With each type of data is associated a specific level of measurement. For categorical data we acknowledge qualitative level, for numerical quantitative level. The qualitative level is segmented into nominal (categories that cannot be put in any order) and ordinal (ordered categories), while the quantitative level is partitioned into ratio (has a true zero) and interval (without true zero).  
+
+### Categorical nominal 
+
+In our data set, most of variables belong to categorical type and their qualitative level is nominal. Variables such as offense_code,offense_description,shooting,district,street represent groups with no inherent order or ranking. 
+
+### Categorical ordinal
+In the context of date, months could be considered ordinal as it follows a sequential order from January to December, same with days that are ordered from 1 to 28/29/30/31. The days of the week may be ordered as well, this time based on their position in the week (e.g., Sunday, Monday, Tuesday, etc.)., so I will consider them also ordinal. 
+
+Usually time in general is numerical, however in our example we may treat it as a categorical ordinal because we have only integer values, so zero digits after point and we may set hour from 0-23, minutes from 00-59. 
+
+### Numerical (continuous) interval
+Geographical coordinates typically belong to the numerical data type. They represent specific points on the Earth's surface using latitude and longitude values, which are numeric measurements. Latitude specifies the north-south position, while longitude specifies the east-west position. 
+
+Now as we know more about types we can make some changes. 
+Since in R categorical data is often stored in a Factor (data structure), I convert each categorical variable to factor. The results are below: 
+
+```{r echo=FALSE}
+boston_crimes$offense_code <- as.factor(boston_crimes$offense_code)
+boston_crimes$offense_description <- as.factor(boston_crimes$offense_description)
+boston_crimes$shooting <- as.factor(boston_crimes$shooting)
+
+boston_crimes$district <- as.factor(boston_crimes$district)
+boston_crimes$street <- as.factor(boston_crimes$street)
+boston_crimes$month <- as.factor(boston_crimes$month)
+boston_crimes$day <- as.factor(boston_crimes$day)
+boston_crimes$day_of_week <- as.factor(boston_crimes$day_of_week)
+boston_crimes$hour <- as.factor(boston_crimes$hour)
+boston_crimes$minutes <- as.factor(boston_crimes$minutes)
+str(boston_crimes)
+```
+
+### The final result 
+
+The cleaned and organized data is prepared for further analysis.
+
+```{r  echo=FALSE}
+head(boston_crimes,10)
+```
+
+\newpage
+# EDA 1-dimensional
+I started from analysis each column one after another and I plotted results. 
+At the very beginning, I was obtained information about 10 most popular crimes in Boston. It turned out that INVESTIGATE PERSON is at the forefront, after it SICK ASSIST and then M/V LEAVING SCENE-PROPERTY DAMAGE. I would like to highlight that I don't have access to more accurate data about crimes description, so I may only guessing to what refer some keywords. In my opinion, first offenses are not really serious. They concern rather daily petty crimes.  
+
+Below I present bar graphs with 10 and 20 the most frequent crimes and with 20 the least.
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot.png")
+```
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot01.png")
+```
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot02.png")
+```
+
+Each crime description has assigned its own code. Maybe there are some patterns that for example code with numbers from certain range are related to more sever delinquency or to proper code like penal code, civil code, labor code and so on. 
+In the following chart I showed the incidence of offense codes:
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot03.png")
+```
+
+### Date visualisation 
+
+#### Months
+The graph below shows how many crimes were committed in particular months of the 2022. The least occur in winter months, the most during the summer. In my opinion, it is nothing revelatory because summer creates favourable conditions for criminals - more events take place, people are encouraged by the weather to leave their houses, to spend their spare time outside with their family or friends or to visit some places, most often city centres.
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot04.png")
+```
+
+#### Days 
+
+What draws attention is the huge different in numbers of delinquencies between the first day and the last day. Moreover, the first day stands out among other days.  It can stem from few factors, for example: when there was no information about the day of crime, the person who entered the data could assumed the 1st day of the month (there must be some examples of inaccurate or complete lack of the information about date and time, the same case we will notice with hour).
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot05.png")
+```
+
+#### Days of the week
+
+Friday is at the forefront among all days of the week when it comes to committed crimes. This is the end of the week, so that people know they can stay late in public places because the next day is out of work. This is a perfect moment for thieves, pickpockets, vandals, fraudsters or drug dealers. Friday may be also a day when people get paid and no one can deny that many people have a tendency to spending their money (on shopping, on alcohol, on other drugs or entertainment) straight away. Contrary to Friday, the most peaceful day is Sunday. At that time, people have time for rest, time for themselves, and their families. 
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot06.png")
+```
+
+#### Holidays
+
+Another interesting feature is shown on the chart below. It depicts crimes during 6 holidays frequently celebrated in the USA. The highest percentage is observed on the following days: Memorial day, Labor Day and Thanksgiving whereas the lowest on New Year's Day, Independence Day and on Christmas. 
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot07.png")
+```
+
+Taking into consideration only these 6 holidays we can tell that in these days were undertaken 3184 criminal actions which constitutes about 4.5 percent of total crimes.
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot08.png")
+```
+
+\newpage
+### Time visualization
+Two next two charts illustrate particular hour and minute of the law transgression. 
+
+#### Hour
+We can see that the midnight occurs most frequently and significantly surpasses other hours.This may be due to the fact that if there was no data regarding the time, they entered the respective case under hour 00:00. 
+Apart from this anomaly the highest number of cases was recorded during the day, the lowest during the night, where majority of people sleep. At 5 a.m. the crime rate starts gradually increasing, from 1 p.m. till 4 p.m. are detected some fluctuations and then at 5 p.m the rate starts steadily decreasing. 
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot09.png")
+```
+
+#### Minutes
+Here, we may notice the same controversial issue,as we saw with hour and day, related to the great advantage of minute 00. What is more, when we're examining the diagram we observe that minutes which are the multiple of 5 stands out. This indicates people's tendency towards rounding off (numbers).
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot10.png")
+```
+
+### Some information about place
+
+#### Districts
+Officially in Boston there are 23 Neighborhoods, however BPD (Boston Police Department) distinguishes only 12 districts listed below. The following pie chart presents the percentage share of each district in terms of committed crimes. 
+
+Instead map shows the position of the  districts in Boston with the frequency of the delinquencies . Each dot indicates one reported case of offense. Where it is denser, there were more crimes committed.
+
+It is also worth mentioning that some data points extend beyond the boundaries of their respective districts, which may be due to errors in data entry or recording. Even if the geographical discrepancies are minor, when we plot the chart, these tiny mistakes are highly visible.
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot11.png")
+knitr::include_graphics("../Output/Plots/Rplot12.png")
+```
+
+\newpage
+#### Streets
+
+From the diagram below we infer that the most prone to crimes, so that the most dangerous street is Washington Street. However, as i discovered while creating the charts, there is more than on street named in the same way. This definitely reduces the level of the fear associated with that street. 
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot13.png")
+```
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot14.png")
+```
+
+The next three places go to Gibson Street, Harrison Avenue and Blue Hill Avenue where were reported respectively 2670, 2655 and 2349 crimes. The first ten transgressions in each street are depicted on the figures below. 
+
+There, the 1st position in Gibson ST and the 2n in Blue Hill Ave and Harrison Ave is occupied by  M/V-LEAVING SCENE - PROPERTY DAMAGE. INVESTIGATE PERSON and INVESTIGATE PROPERTY are also really high in the ranking, simultaneously on each street. On all three charts appear similar crimes like larceny,theft or vandalism.  
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot15.png")
+knitr::include_graphics("../Output/Plots/Rplot16.png")
+knitr::include_graphics("../Output/Plots/Rplot17.png")
+```
+
+### Shooting
+
+Another interesting graph reveals, how many instances involved the use of firearms. Although there is a huge difference in numbers, the fact that shooting appeared in 733 cases within one year is still scary at least for me. 
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot18.png")
+```
+
+In addition, I attempted to mark on the map the locations where the shots were fired. 
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot19.png")
+```
+
+\newpage
+# EDA 2-dimensional
+In this section I will focus on analyzing the relationship between two variables. I will show the results using various charts.
+
+As I mentioned before, the most frequent holidays in terms of committed crimes are: Memorial Day, Labor Day and Thanksgiving. These holidays I used to create a grouped barchart which shows the relation between each holiday and a frequency of a specific type of larceny. 
+
+Shoplifting and theft from building happened the most often on Memorial Day, while theft of bicycle was reported the most frequently on Labor Day. What is surprising, theft of bicycle and shoplifting on Labor Day occurred the same number of times. In contrast, on Memorial Day and on Thanksgiving Day theft of bicycle reached less than 10 observations and it occurred least frequently.  
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot20.png")
+```
+
+In one of the previous charts I showed that the most popular crimes in Boston are: investigate person, sick assist, m/v leaving scene-property damage and investigate property. The following diagram is a representation of time series and tell us how many delinquencies of mentioned types,happened each month. Here also, has been demonstrated the pattern that most crimes are committed at the beginning of the summer and in summer. 
+
+Picks we see in May, June, July and August. 
+
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot21.png")
+```
+
+Furthermore, I created a chart showing the streets with the highest crime rates, specifically where the shootings occurred. We can read from it that Washington Street appears most frequently, however we must keep in mind the fact that this data do not relate only to one street but few. 
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot22.png")
+```
+
+Besides, I was also curious which kind of violations were notified to the police on that street.The results are presented over there: 
+```{r echo=FALSE}
+knitr::include_graphics("../Output/Plots/Rplot23.png")
+```
+
+# Conclusions
+
+That was really fascinating and comprehensive data set of Boston crimes 2022, from which for sure we could pull out much more than I did it. It is true that it contained only categorical variables, so that some exploratory methods were quite limited, however the results are satisfying after all. By conducting an analysis from scratch, I have learned how to prepare adequately data (data cleansing) and I found out a small segment of EDA one and two dimensional. The project involved numerous traps into which of course I must have fallen but that was necessary, because we learn from mistakes. 
+Finally, I noticed the power of charts from which information can be easily and quickly extracted. 
+
